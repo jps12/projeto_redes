@@ -7,9 +7,50 @@
 #include <unistd.h>
 #include <string.h> /* memset() */
 #include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+#define KEY 12134
 
 struct sockaddr_in address, server_address;
-int sock;
+int sock, msgid;
+key_t key;
+
+struct messeg_buffer
+{
+    long message_type;
+    char message_text[500];
+}message;
+
+void config_queue();
+void config_address(char **other_end_address);
+void config_socket();
+void send_message();
+void wait_from_queue();
+
+int main(int argc, char *argv[]){
+
+    if (argc != 3){
+        printf("Aceitamos apenas o ip do server e a port que ele usa!! (2 argumentos)\n");
+        exit(0);
+    }
+    
+    config_address(argv);
+    config_socket();
+    config_queue();
+
+    while (1){
+        wait_from_queue();
+        send_message();
+    }
+    return 0;
+}
+
+void config_queue(){
+    key = ftok("Client.c", KEY);
+    msgid = msgget(key, 0666 | IPC_CREAT);
+    
+}
 
 void config_address(char **other_end_address){
     address.sin_family = server_address.sin_family  = AF_INET;
@@ -21,7 +62,7 @@ void config_address(char **other_end_address){
 }
 
 void config_socket(){
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0))<0){
+    if ((sock = socket(AF_INET, SOCK_DGRAM, 0))<0){
         perror("socket:");
         exit(1);
     }
@@ -31,35 +72,17 @@ void config_socket(){
     }
 }
 
-int get_tam_message(){
-    char msg[10] = "?";
-    int server_len = sizeof(server_address), tmp;
-    tmp = connect(sock, (struct sockaddr *) &server_address, server_len);
+void send_message(){
+    int tmp = sendto(sock, message.message_text, strlen(message.message_text), 0, (const struct sockaddr *) &server_address, sizeof(server_address));
     if (tmp < 0){
-        perror("get message size connect:");
-        exit(1);
+        perror("Send to:");
     }
-    send(sock, msg, strlen(msg), 0);
-    printf("Asked message size\n");
-    tmp = read(sock, msg, 10);
-    printf("%s\n", msg);
-    return atoi(msg);
 }
 
-int main(int argc, char *argv[]){
-
-    if (argc != 3){
-        printf("Aceitamos apenas o ip do server e a port que ele usa!! (2 argumentos)\n");
-        exit(0);
-    }
-    config_address(argv);
-    config_socket();
-
-    while (1){
-        char msg[200];
-        int tam_msg = get_tam_message();
-        // printf("Digite a mensagem a ser mandada(max 200 caracteres): ");
-        // scanf(" %s", msg);
-        // send_message(msg, tam_msg);
+void wait_from_queue(){
+    message.message_type = 1;
+    if (msgrcv(msgid, &message, sizeof(message), 1, 0) < 0){
+        perror("Receber mensagem da fila:");
+        exit(1);
     }
 }
